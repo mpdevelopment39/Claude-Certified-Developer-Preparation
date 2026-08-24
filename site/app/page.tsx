@@ -25,6 +25,9 @@ type ExamAttempt = {
   domainResults: DomainResult[];
 };
 
+const progressStorageKey = "ccdv-field-guide-progress";
+const historyStorageKey = "ccdv-field-guide-history";
+
 const objectiveKey = (domain: Domain, index: number) => domain.id + "-" + index;
 const sameAnswers = (a: number[] = [], b: number[] = []) => {
   const left = [...a].sort();
@@ -68,7 +71,6 @@ export default function Home() {
   const [attemptDomain, setAttemptDomain] = useState<string | null>(null);
   const [attemptId, setAttemptId] = useState("");
   const [examStartedAt, setExamStartedAt] = useState(0);
-  const [deviceId, setDeviceId] = useState("");
   const [history, setHistory] = useState<ExamAttempt[]>([]);
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>("all");
   const [historyLoading, setHistoryLoading] = useState(true);
@@ -79,41 +81,23 @@ export default function Home() {
   useEffect(() => {
     const hydration = window.setTimeout(() => {
       try {
-        const saved = window.localStorage.getItem("ccdv-field-guide-progress");
+        const saved = window.localStorage.getItem(progressStorageKey);
         if (saved) setCompleted(JSON.parse(saved));
-        const existingDeviceId = window.localStorage.getItem("ccdv-field-guide-device-id");
-        const nextDeviceId = existingDeviceId || window.crypto.randomUUID();
-        if (!existingDeviceId) window.localStorage.setItem("ccdv-field-guide-device-id", nextDeviceId);
-        setDeviceId(nextDeviceId);
+        const savedHistory = window.localStorage.getItem(historyStorageKey);
+        if (savedHistory) setHistory(JSON.parse(savedHistory));
       } catch (error) {
-        console.warn("Unable to restore saved study progress", error);
+        console.warn("Unable to restore saved study data", error);
+        setHistoryError("Your saved results could not be loaded on this device.");
       }
+      setHistoryLoading(false);
       setLoaded(true);
     }, 0);
     return () => window.clearTimeout(hydration);
   }, []);
 
   useEffect(() => {
-    if (!deviceId) return;
-    let active = true;
-    fetch("/api/history?deviceId=" + encodeURIComponent(deviceId))
-      .then(async (response) => {
-        const data = await response.json() as { attempts?: ExamAttempt[]; error?: string };
-        if (!response.ok) throw new Error(data.error || "Unable to load attempt history");
-        if (active) setHistory(data.attempts ?? []);
-      })
-      .catch((error: unknown) => {
-        if (active) setHistoryError(error instanceof Error ? error.message : "Unable to load attempt history");
-      })
-      .finally(() => {
-        if (active) setHistoryLoading(false);
-      });
-    return () => { active = false; };
-  }, [deviceId]);
-
-  useEffect(() => {
     if (!loaded) return;
-    window.localStorage.setItem("ccdv-field-guide-progress", JSON.stringify(completed));
+    window.localStorage.setItem(progressStorageKey, JSON.stringify(completed));
   }, [completed, loaded]);
 
   useEffect(() => {
@@ -139,41 +123,51 @@ export default function Home() {
   }, [examQuestions, selections]);
 
   useEffect(() => {
-    if (examState !== "results" || !attemptId || !deviceId || savedAttemptIds.current.has(attemptId)) return;
+    if (examState !== "results" || !attemptId || savedAttemptIds.current.has(attemptId)) return;
     savedAttemptIds.current.add(attemptId);
     window.queueMicrotask(() => {
       setSaveState("saving");
       setHistoryError("");
     });
-    fetch("/api/history", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        id: attemptId,
-        deviceId,
-        mode: attemptMode,
-        domainId: attemptDomain,
-        title: examTitle,
-        startedAt: examStartedAt,
-        completedAt: Date.now(),
-        durationSeconds: examDuration,
-        remainingSeconds: secondsLeft,
-        questionIds: examQuestions.map((question) => question.id),
-        selections,
-      }),
-    })
-      .then(async (response) => {
-        const data = await response.json() as { attempt?: ExamAttempt; error?: string };
-        if (!response.ok || !data.attempt) throw new Error(data.error || "Unable to save this attempt");
-        setHistory((attempts) => [data.attempt!, ...attempts.filter((attempt) => attempt.id !== data.attempt!.id)]);
+
+    const domainResults = domains.flatMap((domain) => {
+      const group = examQuestions.filter((question) => question.domain === domain.id);
+      if (!group.length) return [];
+      const correct = group.filter((question) => sameAnswers(selections[question.id], question.answers)).length;
+      return [{ domainId: domain.id, correct, total: group.length, percent: Math.round((correct / group.length) * 100) }];
+    });
+    const correctCount = examQuestions.filter((question) => sameAnswers(selections[question.id], question.answers)).length;
+    const attempt: ExamAttempt = {
+      id: attemptId,
+      mode: attemptMode,
+      domainId: attemptMode === "domain" ? attemptDomain : null,
+      title: examTitle,
+      startedAt: examStartedAt,
+      completedAt: Date.now(),
+      durationSeconds: examDuration,
+      elapsedSeconds: Math.min(examDuration, Math.max(0, examDuration - secondsLeft)),
+      questionCount: examQuestions.length,
+      answeredCount: examQuestions.filter((question) => (selections[question.id] ?? []).length > 0).length,
+      correctCount,
+      scorePercent: Math.round((correctCount / examQuestions.length) * 100),
+      domainResults,
+    };
+
+    try {
+      const nextHistory = [attempt, ...history.filter((item) => item.id !== attempt.id)].slice(0, 200);
+      window.localStorage.setItem(historyStorageKey, JSON.stringify(nextHistory));
+      window.queueMicrotask(() => {
+        setHistory(nextHistory);
         setSaveState("saved");
-      })
-      .catch((error: unknown) => {
-        savedAttemptIds.current.delete(attemptId);
+      });
+    } catch (error) {
+      savedAttemptIds.current.delete(attemptId);
+      window.queueMicrotask(() => {
         setSaveState("error");
         setHistoryError(error instanceof Error ? error.message : "Unable to save this attempt");
       });
-  }, [attemptDomain, attemptId, attemptMode, deviceId, examDuration, examQuestions, examStartedAt, examState, examTitle, secondsLeft, selections]);
+    }
+  }, [attemptDomain, attemptId, attemptMode, examDuration, examQuestions, examStartedAt, examState, examTitle, history, secondsLeft, selections]);
 
   const filteredHistory = useMemo(
     () => historyFilter === "all" ? history : history.filter((attempt) => attempt.mode === historyFilter),

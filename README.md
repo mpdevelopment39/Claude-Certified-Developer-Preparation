@@ -30,3 +30,9 @@ Open the local URL shown in the terminal.
 cd site
 npm run build
 ```
+
+## GitHub Pages
+
+Every push to `main` publishes the static app with GitHub Actions. Practice
+progress and attempt history are stored locally in the browser, so each device
+keeps its own data without requiring a server.
