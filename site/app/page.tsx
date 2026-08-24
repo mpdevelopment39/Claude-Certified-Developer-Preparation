@@ -1,10 +1,29 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { domains, questions, sourceLinks, type Domain, type Question } from "./content";
 
 type View = "overview" | "curriculum" | "practice" | "sources";
 type ExamState = "idle" | "running" | "results";
+type AttemptMode = "full" | "quick" | "domain";
+type PracticePanel = "launch" | "history";
+type HistoryFilter = "all" | AttemptMode;
+type DomainResult = { domainId: string; correct: number; total: number; percent: number };
+type ExamAttempt = {
+  id: string;
+  mode: AttemptMode;
+  domainId: string | null;
+  title: string;
+  startedAt: number;
+  completedAt: number;
+  durationSeconds: number;
+  elapsedSeconds: number;
+  questionCount: number;
+  answeredCount: number;
+  correctCount: number;
+  scorePercent: number;
+  domainResults: DomainResult[];
+};
 
 const objectiveKey = (domain: Domain, index: number) => domain.id + "-" + index;
 const sameAnswers = (a: number[] = [], b: number[] = []) => {
@@ -13,9 +32,27 @@ const sameAnswers = (a: number[] = [], b: number[] = []) => {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 };
 const shuffle = <T,>(items: T[]) => [...items].sort(() => Math.random() - 0.5);
+const attemptLabels: Record<AttemptMode, string> = {
+  full: "Full mock",
+  quick: "Scenario Sprint",
+  domain: "Domain drill",
+};
+const formatAttemptDate = (timestamp: number) => new Intl.DateTimeFormat(undefined, {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+}).format(new Date(timestamp));
+const formatDuration = (seconds: number) => {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return hours ? `${hours}h ${String(minutes).padStart(2, "0")}m` : `${Math.max(1, minutes)}m`;
+};
 
 export default function Home() {
   const [view, setView] = useState<View>("overview");
+  const [practicePanel, setPracticePanel] = useState<PracticePanel>("launch");
   const [activeDomain, setActiveDomain] = useState("D2");
   const [completed, setCompleted] = useState<string[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -27,14 +64,52 @@ export default function Home() {
   const [flagged, setFlagged] = useState<number[]>([]);
   const [secondsLeft, setSecondsLeft] = useState(0);
   const [examDuration, setExamDuration] = useState(0);
+  const [attemptMode, setAttemptMode] = useState<AttemptMode>("quick");
+  const [attemptDomain, setAttemptDomain] = useState<string | null>(null);
+  const [attemptId, setAttemptId] = useState("");
+  const [examStartedAt, setExamStartedAt] = useState(0);
+  const [deviceId, setDeviceId] = useState("");
+  const [history, setHistory] = useState<ExamAttempt[]>([]);
+  const [historyFilter, setHistoryFilter] = useState<HistoryFilter>("all");
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState("");
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const savedAttemptIds = useRef(new Set<string>());
 
   useEffect(() => {
-    try {
-      const saved = window.localStorage.getItem("ccdv-field-guide-progress");
-      if (saved) setCompleted(JSON.parse(saved));
-    } catch {}
-    setLoaded(true);
+    const hydration = window.setTimeout(() => {
+      try {
+        const saved = window.localStorage.getItem("ccdv-field-guide-progress");
+        if (saved) setCompleted(JSON.parse(saved));
+        const existingDeviceId = window.localStorage.getItem("ccdv-field-guide-device-id");
+        const nextDeviceId = existingDeviceId || window.crypto.randomUUID();
+        if (!existingDeviceId) window.localStorage.setItem("ccdv-field-guide-device-id", nextDeviceId);
+        setDeviceId(nextDeviceId);
+      } catch (error) {
+        console.warn("Unable to restore saved study progress", error);
+      }
+      setLoaded(true);
+    }, 0);
+    return () => window.clearTimeout(hydration);
   }, []);
+
+  useEffect(() => {
+    if (!deviceId) return;
+    let active = true;
+    fetch("/api/history?deviceId=" + encodeURIComponent(deviceId))
+      .then(async (response) => {
+        const data = await response.json() as { attempts?: ExamAttempt[]; error?: string };
+        if (!response.ok) throw new Error(data.error || "Unable to load attempt history");
+        if (active) setHistory(data.attempts ?? []);
+      })
+      .catch((error: unknown) => {
+        if (active) setHistoryError(error instanceof Error ? error.message : "Unable to load attempt history");
+      })
+      .finally(() => {
+        if (active) setHistoryLoading(false);
+      });
+    return () => { active = false; };
+  }, [deviceId]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -43,13 +118,13 @@ export default function Home() {
 
   useEffect(() => {
     if (examState !== "running" || secondsLeft <= 0) return;
-    const timer = window.setInterval(() => setSecondsLeft((time) => Math.max(0, time - 1)), 1000);
+    const timer = window.setInterval(() => setSecondsLeft((time) => {
+      const next = Math.max(0, time - 1);
+      if (next === 0) window.queueMicrotask(() => setExamState("results"));
+      return next;
+    }), 1000);
     return () => window.clearInterval(timer);
   }, [examState, secondsLeft]);
-
-  useEffect(() => {
-    if (examState === "running" && examDuration > 0 && secondsLeft === 0) setExamState("results");
-  }, [secondsLeft, examDuration, examState]);
 
   const totalObjectives = domains.reduce((sum, domain) => sum + domain.objectives.length, 0);
   const weightedProgress = domains.reduce((total, domain) =>
@@ -62,6 +137,63 @@ export default function Home() {
     const correct = examQuestions.filter((question) => sameAnswers(selections[question.id], question.answers)).length;
     return { correct, percent: Math.round((correct / examQuestions.length) * 100) };
   }, [examQuestions, selections]);
+
+  useEffect(() => {
+    if (examState !== "results" || !attemptId || !deviceId || savedAttemptIds.current.has(attemptId)) return;
+    savedAttemptIds.current.add(attemptId);
+    window.queueMicrotask(() => {
+      setSaveState("saving");
+      setHistoryError("");
+    });
+    fetch("/api/history", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: attemptId,
+        deviceId,
+        mode: attemptMode,
+        domainId: attemptDomain,
+        title: examTitle,
+        startedAt: examStartedAt,
+        completedAt: Date.now(),
+        durationSeconds: examDuration,
+        remainingSeconds: secondsLeft,
+        questionIds: examQuestions.map((question) => question.id),
+        selections,
+      }),
+    })
+      .then(async (response) => {
+        const data = await response.json() as { attempt?: ExamAttempt; error?: string };
+        if (!response.ok || !data.attempt) throw new Error(data.error || "Unable to save this attempt");
+        setHistory((attempts) => [data.attempt!, ...attempts.filter((attempt) => attempt.id !== data.attempt!.id)]);
+        setSaveState("saved");
+      })
+      .catch((error: unknown) => {
+        savedAttemptIds.current.delete(attemptId);
+        setSaveState("error");
+        setHistoryError(error instanceof Error ? error.message : "Unable to save this attempt");
+      });
+  }, [attemptDomain, attemptId, attemptMode, deviceId, examDuration, examQuestions, examStartedAt, examState, examTitle, secondsLeft, selections]);
+
+  const filteredHistory = useMemo(
+    () => historyFilter === "all" ? history : history.filter((attempt) => attempt.mode === historyFilter),
+    [history, historyFilter],
+  );
+
+  const historyStats = useMemo(() => {
+    const attempts = history.length;
+    const average = attempts ? Math.round(history.reduce((sum, attempt) => sum + attempt.scorePercent, 0) / attempts) : 0;
+    const best = attempts ? Math.max(...history.map((attempt) => attempt.scorePercent)) : 0;
+    const questionsAnswered = history.reduce((sum, attempt) => sum + attempt.answeredCount, 0);
+    return { attempts, average, best, questionsAnswered };
+  }, [history]);
+
+  const domainHistory = useMemo(() => domains.map((domain) => {
+    const results = history.flatMap((attempt) => attempt.domainResults.filter((result) => result.domainId === domain.id));
+    const correct = results.reduce((sum, result) => sum + result.correct, 0);
+    const total = results.reduce((sum, result) => sum + result.total, 0);
+    return { domain, attempts: results.length, correct, total, percent: total ? Math.round((correct / total) * 100) : 0 };
+  }), [history]);
 
   const navigate = (next: View) => {
     setView(next);
@@ -79,7 +211,7 @@ export default function Home() {
     setCompleted((items) => items.includes(key) ? items.filter((item) => item !== key) : [...items, key]);
   };
 
-  const startExam = (mode: "full" | "quick" | "domain", domainId?: string) => {
+  const startExam = (mode: AttemptMode, domainId?: string) => {
     let selected: Question[];
     let duration: number;
     let title: string;
@@ -97,6 +229,11 @@ export default function Home() {
       title = "Quick Scenario Drill";
     }
     setExamQuestions(selected);
+    setAttemptMode(mode);
+    setAttemptDomain(mode === "domain" ? domainId ?? null : null);
+    setAttemptId(window.crypto.randomUUID());
+    setExamStartedAt(Date.now());
+    setSaveState("idle");
     setExamDuration(duration);
     setSecondsLeft(duration);
     setExamTitle(title);
@@ -283,37 +420,121 @@ export default function Home() {
             <span>◎</span>
             <div><b>Exam integrity</b><p>These are original exam-style questions—not recalled, leaked, or live exam items. Actual exam content is confidential under Anthropic&apos;s NDA.</p></div>
           </div>
-          <div className="practice-modes">
-            <button className="mode-card featured" onClick={() => startExam("full")}>
-              <span className="mode-index">01 / FULL SIMULATION</span>
-              <div className="mode-icon">120</div>
-              <h2>Blueprint Mock</h2>
-              <p>53 items · 120 minutes · all 8 domains · single and multiple response</p>
-              <span className="mode-cta">START EXAM <b>→</b></span>
-            </button>
-            <button className="mode-card" onClick={() => startExam("quick")}>
-              <span className="mode-index">02 / QUICK DRILL</span>
-              <div className="mode-icon">10</div>
-              <h2>Scenario Sprint</h2>
-              <p>10 randomized items · 25 minutes · score and explanations</p>
-              <span className="mode-cta">START DRILL <b>→</b></span>
+          <div className="practice-tabs" role="tablist" aria-label="Practice sections">
+            <button role="tab" aria-selected={practicePanel === "launch"} className={practicePanel === "launch" ? "active" : ""} onClick={() => setPracticePanel("launch")}>Practice modes</button>
+            <button role="tab" aria-selected={practicePanel === "history"} className={practicePanel === "history" ? "active" : ""} onClick={() => setPracticePanel("history")}>
+              Attempt history <span>{history.length}</span>
             </button>
           </div>
-          <div className="domain-drills">
-            <div className="section-heading mini">
-              <div><p className="eyebrow">TARGETED PRACTICE</p><h2>Drill one domain</h2></div>
-              <p>Use focused sets after reviewing your mock-exam breakdown.</p>
-            </div>
-            <div className="drill-grid">
-              {domains.map((domain) => (
-                <button key={domain.id} onClick={() => startExam("domain", domain.id)}>
-                  <span className={"domain-dot " + domain.color} />
-                  <span><b>{domain.id}</b>{domain.short}</span>
-                  <strong>{questions.filter((question) => question.domain === domain.id).length} Q →</strong>
+
+          {practicePanel === "launch" ? (
+            <>
+              <div className="practice-modes">
+                <button className="mode-card featured" onClick={() => startExam("full")}>
+                  <span className="mode-index">01 / FULL SIMULATION</span>
+                  <div className="mode-icon">120</div>
+                  <h2>Blueprint Mock</h2>
+                  <p>53 items · 120 minutes · all 8 domains · single and multiple response</p>
+                  <span className="mode-cta">START EXAM <b>→</b></span>
                 </button>
-              ))}
+                <button className="mode-card" onClick={() => startExam("quick")}>
+                  <span className="mode-index">02 / QUICK DRILL</span>
+                  <div className="mode-icon">10</div>
+                  <h2>Scenario Sprint</h2>
+                  <p>10 randomized items · 25 minutes · score and explanations</p>
+                  <span className="mode-cta">START DRILL <b>→</b></span>
+                </button>
+              </div>
+              <div className="domain-drills">
+                <div className="section-heading mini">
+                  <div><p className="eyebrow">TARGETED PRACTICE</p><h2>Drill one domain</h2></div>
+                  <p>Use focused sets after reviewing your mock-exam breakdown.</p>
+                </div>
+                <div className="drill-grid">
+                  {domains.map((domain) => (
+                    <button key={domain.id} onClick={() => startExam("domain", domain.id)}>
+                      <span className={"domain-dot " + domain.color} />
+                      <span><b>{domain.id}</b>{domain.short}</span>
+                      <strong>{questions.filter((question) => question.domain === domain.id).length} Q →</strong>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="history-panel">
+              <div className="history-heading">
+                <div>
+                  <p className="eyebrow">YOUR RESULTS / SAVED AUTOMATICALLY</p>
+                  <h2>Every attempt,<br />one clear trajectory.</h2>
+                </div>
+                <p>Compare full mocks, Scenario Sprints, and focused drills. Domain totals combine every question you have completed.</p>
+              </div>
+
+              {historyError && <div className="history-alert">{historyError}</div>}
+              {historyLoading ? (
+                <div className="history-empty"><span>···</span><h3>Loading your results</h3></div>
+              ) : history.length === 0 ? (
+                <div className="history-empty">
+                  <span>◎</span>
+                  <h3>Your first result will appear here.</h3>
+                  <p>Complete a Blueprint Mock, Scenario Sprint, or domain drill and its score will be saved automatically.</p>
+                  <button className="primary-btn" onClick={() => setPracticePanel("launch")}>Start practicing <span>→</span></button>
+                </div>
+              ) : (
+                <>
+                  <div className="history-stats">
+                    <div><span>ATTEMPTS</span><strong>{historyStats.attempts}</strong></div>
+                    <div><span>AVERAGE SCORE</span><strong>{historyStats.average}%</strong></div>
+                    <div><span>PERSONAL BEST</span><strong>{historyStats.best}%</strong></div>
+                    <div><span>ANSWERS LOGGED</span><strong>{historyStats.questionsAnswered}</strong></div>
+                  </div>
+
+                  <section className="domain-performance">
+                    <div className="section-heading mini">
+                      <div><p className="eyebrow">ALL-TIME PERFORMANCE</p><h2>Results by domain</h2></div>
+                      <p>Based on every saved question, across all practice modes.</p>
+                    </div>
+                    <div className="domain-history-grid">
+                      {domainHistory.map(({ domain, attempts, correct, total, percent }) => (
+                        <button key={domain.id} disabled={!total} onClick={() => { setActiveDomain(domain.id); navigate("curriculum"); }}>
+                          <div className="domain-history-head"><span className={"domain-dot " + domain.color} /><b>{domain.id}</b><strong>{total ? percent + "%" : "—"}</strong></div>
+                          <h3>{domain.short}</h3>
+                          <div className="result-track"><span style={{ width: String(percent) + "%" }} /></div>
+                          <p>{total ? `${correct}/${total} correct · ${attempts} ${attempts === 1 ? "attempt" : "attempts"}` : "No results yet"}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+
+                  <section className="attempt-log">
+                    <div className="attempt-log-head">
+                      <div><p className="eyebrow">TIMELINE</p><h2>Attempt history</h2></div>
+                      <div className="history-filters" aria-label="Filter history">
+                        {(["all", "full", "quick", "domain"] as HistoryFilter[]).map((filter) => (
+                          <button key={filter} className={historyFilter === filter ? "active" : ""} onClick={() => setHistoryFilter(filter)}>
+                            {filter === "all" ? "All" : attemptLabels[filter]}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="attempt-list">
+                      {filteredHistory.length ? filteredHistory.map((attempt) => (
+                        <article className="attempt-row" key={attempt.id}>
+                          <div className="attempt-date"><b>{formatAttemptDate(attempt.completedAt)}</b><span>{attemptLabels[attempt.mode]}</span></div>
+                          <div className="attempt-name"><h3>{attempt.title}</h3><p>{attempt.correctCount}/{attempt.questionCount} correct · {attempt.answeredCount} answered · {formatDuration(attempt.elapsedSeconds)}</p></div>
+                          <div className="attempt-domains" aria-label="Domain scores">
+                            {attempt.domainResults.map((result) => <span key={result.domainId}>{result.domainId} <b>{result.percent}%</b></span>)}
+                          </div>
+                          <strong className={"attempt-score " + (attempt.scorePercent >= 80 ? "high" : attempt.scorePercent >= 65 ? "mid" : "low")}>{attempt.scorePercent}%</strong>
+                        </article>
+                      )) : <div className="filter-empty">No saved attempts match this filter.</div>}
+                    </div>
+                  </section>
+                </>
+              )}
             </div>
-          </div>
+          )}
         </section>
       )}
 
@@ -379,9 +600,15 @@ export default function Home() {
               <p className="eyebrow">{examTitle} / COMPLETE</p>
               <h1>{score.percent >= 80 ? "Strong result." : score.percent >= 65 ? "Keep building." : "Review the foundations."}</h1>
               <p>You answered {score.correct} of {examQuestions.length} correctly. Anthropic does not publish a raw-to-scaled conversion, so this result is a study indicator—not a predicted 720 scaled score.</p>
+              <p className={"save-note " + saveState}>
+                {saveState === "saving" && "Saving this result to your history…"}
+                {saveState === "saved" && "✓ Result saved to your attempt history"}
+                {saveState === "error" && "This result could not be saved yet. Return to results to retry."}
+              </p>
               <div className="result-actions">
-                <button className="primary-btn" onClick={() => startExam(examQuestions.length === 53 ? "full" : "quick")}>Try another set <span>→</span></button>
-                <button className="text-btn" onClick={() => setExamState("idle")}>Back to practice</button>
+                <button className="primary-btn" onClick={() => startExam(attemptMode, attemptDomain ?? undefined)}>Try another set <span>→</span></button>
+                <button className="text-btn" onClick={() => { setExamState("idle"); setPracticePanel("history"); }}>View attempt history</button>
+                <button className="text-btn" onClick={() => { setExamState("idle"); setPracticePanel("launch"); }}>Back to practice</button>
               </div>
             </div>
           </div>
