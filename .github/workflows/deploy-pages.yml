@@ -37,6 +37,13 @@ jobs:
       - name: Build static site
         run: npm run build
 
+      - name: Prepare Pages artifact
+        run: |
+          PAGES_REPOSITORY_NAME="${GITHUB_REPOSITORY#*/}"
+          mv "dist/client/${PAGES_REPOSITORY_NAME}/_next" dist/client/_next
+          rmdir "dist/client/${PAGES_REPOSITORY_NAME}"
+          touch dist/client/.nojekyll
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
         with:
