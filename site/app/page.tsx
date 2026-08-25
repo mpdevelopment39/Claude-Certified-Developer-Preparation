@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { domains, questions, sourceLinks, type Domain, type Question } from "./content";
+import { domains, fullMockQuestionCounts, questions, sourceLinks, type Domain, type Question } from "./content";
 
 type View = "overview" | "curriculum" | "practice" | "sources";
 type ExamState = "idle" | "running" | "results";
@@ -64,6 +64,7 @@ export default function Home() {
   const [examTitle, setExamTitle] = useState("");
   const [current, setCurrent] = useState(0);
   const [selections, setSelections] = useState<Record<number, number[]>>({});
+  const [revealed, setRevealed] = useState<number[]>([]);
   const [flagged, setFlagged] = useState<number[]>([]);
   const [secondsLeft, setSecondsLeft] = useState(0);
   const [examDuration, setExamDuration] = useState(0);
@@ -210,7 +211,10 @@ export default function Home() {
     let duration: number;
     let title: string;
     if (mode === "full") {
-      selected = shuffle(questions);
+      selected = shuffle(domains.flatMap((domain) =>
+        shuffle(questions.filter((question) => question.domain === domain.id))
+          .slice(0, fullMockQuestionCounts[domain.id] ?? 0),
+      ));
       duration = 120 * 60;
       title = "Full Blueprint Mock";
     } else if (mode === "domain" && domainId) {
@@ -233,6 +237,7 @@ export default function Home() {
     setExamTitle(title);
     setCurrent(0);
     setSelections({});
+    setRevealed([]);
     setFlagged([]);
     setExamState("running");
     setView("practice");
@@ -240,13 +245,24 @@ export default function Home() {
   };
 
   const selectOption = (question: Question, option: number) => {
+    if (revealed.includes(question.id)) return;
     setSelections((all) => {
       const existing = all[question.id] ?? [];
       const next = question.answers.length > 1
-        ? existing.includes(option) ? existing.filter((item) => item !== option) : [...existing, option]
+        ? existing.includes(option)
+          ? existing.filter((item) => item !== option)
+          : existing.length < question.answers.length ? [...existing, option] : existing
         : [option];
       return { ...all, [question.id]: next };
     });
+    if (question.answers.length === 1) {
+      setRevealed((items) => items.includes(question.id) ? items : [...items, question.id]);
+    }
+  };
+
+  const revealAnswer = (question: Question) => {
+    if ((selections[question.id] ?? []).length !== question.answers.length) return;
+    setRevealed((items) => items.includes(question.id) ? items : [...items, question.id]);
   };
 
   const toggleFlag = (id: number) =>
@@ -543,7 +559,10 @@ export default function Home() {
             {examQuestions.map((question, index) => (
               <button
                 key={question.id}
-                className={(index === current ? "current " : "") + (selections[question.id]?.length ? "answered " : "") + (flagged.includes(question.id) ? "flagged" : "")}
+                className={(index === current ? "current " : "") +
+                  (selections[question.id]?.length ? "answered " : "") +
+                  (revealed.includes(question.id) ? (sameAnswers(selections[question.id], question.answers) ? "correct " : "incorrect ") : "") +
+                  (flagged.includes(question.id) ? "flagged" : "")}
                 onClick={() => setCurrent(index)}
                 aria-label={"Question " + (index + 1)}
               >{index + 1}</button>
@@ -557,16 +576,45 @@ export default function Home() {
             <h2>{examQuestions[current].prompt}</h2>
             <div className="options-list">
               {examQuestions[current].options.map((option, index) => {
-                const selected = selections[examQuestions[current].id]?.includes(index);
+                const question = examQuestions[current];
+                const selected = selections[question.id]?.includes(index);
+                const isRevealed = revealed.includes(question.id);
+                const isCorrectAnswer = isRevealed && question.answers.includes(index);
+                const isWrongAnswer = isRevealed && Boolean(selected) && !question.answers.includes(index);
                 return (
-                  <button className={selected ? "selected" : ""} key={option} onClick={() => selectOption(examQuestions[current], index)}>
+                  <button
+                    className={(selected ? "selected " : "") + (isCorrectAnswer ? "answer-correct " : "") + (isWrongAnswer ? "answer-wrong" : "")}
+                    key={option}
+                    onClick={() => selectOption(question, index)}
+                    disabled={isRevealed}
+                  >
                     <span className="option-letter">{String.fromCharCode(65 + index)}</span>
                     <span>{option}</span>
-                    <span className="option-control">{selected ? "✓" : ""}</span>
+                    <span className="option-control">{isCorrectAnswer ? "✓" : isWrongAnswer ? "×" : selected ? "✓" : ""}</span>
                   </button>
                 );
               })}
             </div>
+            {examQuestions[current].answers.length > 1 && !revealed.includes(examQuestions[current].id) && (
+              <div className="check-answer-row">
+                <p>Select {examQuestions[current].answers.length} answers, then check your decision.</p>
+                <button
+                  className="secondary-btn"
+                  onClick={() => revealAnswer(examQuestions[current])}
+                  disabled={(selections[examQuestions[current].id] ?? []).length !== examQuestions[current].answers.length}
+                >Check answer →</button>
+              </div>
+            )}
+            {revealed.includes(examQuestions[current].id) && (
+              <div className={"live-feedback " + (sameAnswers(selections[examQuestions[current].id], examQuestions[current].answers) ? "correct" : "incorrect")} role="status">
+                <span>{sameAnswers(selections[examQuestions[current].id], examQuestions[current].answers) ? "✓" : "×"}</span>
+                <div>
+                  <b>{sameAnswers(selections[examQuestions[current].id], examQuestions[current].answers) ? "Correct" : "Not quite"}</b>
+                  <p>{examQuestions[current].explanation}</p>
+                  {examQuestions[current].source && <a href={examQuestions[current].source.url} target="_blank" rel="noreferrer">OFFICIAL COURSE · {examQuestions[current].source.label} ↗</a>}
+                </div>
+              </div>
+            )}
             <div className="question-actions">
               <button className={"flag" + (flagged.includes(examQuestions[current].id) ? " active" : "")} onClick={() => toggleFlag(examQuestions[current].id)}>
                 {flagged.includes(examQuestions[current].id) ? "★ Flagged for review" : "☆ Flag for review"}
@@ -640,7 +688,10 @@ export default function Home() {
                           <b>{String.fromCharCode(65 + optionIndex)}</b>{option}
                         </p>
                       ))}
-                      <div className="explanation"><b>WHY</b>{question.explanation}</div>
+                      <div className="explanation">
+                        <b>WHY</b>{question.explanation}
+                        {question.source && <a href={question.source.url} target="_blank" rel="noreferrer">OFFICIAL COURSE · {question.source.label} ↗</a>}
+                      </div>
                     </div>
                   </details>
                 );
@@ -655,7 +706,7 @@ export default function Home() {
           <div className="page-intro compact">
             <p className="eyebrow">REFERENCE DESK</p>
             <h1>Study from the<br /><em>source of truth.</em></h1>
-            <p>The certification blueprint tells you what to learn. Primary product documentation tells you how the platform behaves today.</p>
+            <p>Start with Anthropic Academy&apos;s five-course CCDV-F preparation path, then use the primary product documentation to verify how the platform behaves today.</p>
           </div>
           <div className="source-grid">
             {sourceLinks.map((source, index) => (

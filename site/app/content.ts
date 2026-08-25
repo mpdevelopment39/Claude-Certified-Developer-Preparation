@@ -1,3 +1,5 @@
+import { hardQuestions } from "./hard-questions";
+
 export type Objective = { name: string; weight: number; detail: string };
 export type Domain = {
   id: string;
@@ -11,6 +13,60 @@ export type Domain = {
   docs: { label: string; url: string }[];
 };
 
+export const officialPrepCourses = [
+  {
+    order: 1,
+    label: "MSO Foundations",
+    duration: "57 min",
+    detail: "Model fundamentals, context windows, non-determinism, model tiers, prompting modes, and API access patterns.",
+    url: "https://anthropic-partners.skilljar.com/path/claude-certified-developer-foundations/mso-foundations",
+  },
+  {
+    order: 2,
+    label: "Production-Grade Prompting, Agents & Tool Use",
+    duration: "209 min",
+    detail: "Reliable prompts, extended thinking, tool loops, streaming, context engineering, agents, memory, files, and batches.",
+    url: "https://anthropic-partners.skilljar.com/path/claude-certified-developer-foundations/production-grade-prompting-agents-tool-use",
+  },
+  {
+    order: 3,
+    label: "Claude Code, MCP & Integration",
+    duration: "142 min",
+    detail: "Claude Code permissions and project context, Skills and plugins, MCP servers, transports, scopes, and enterprise integration.",
+    url: "https://anthropic-partners.skilljar.com/path/claude-certified-developer-foundations/claude-code-mcp-integration",
+  },
+  {
+    order: 4,
+    label: "Production Engineering, Evals & Security",
+    duration: "211 min",
+    detail: "Evals, testing, tracing, reliability budgets, production error handling, prompt injection, guardrails, and secrets.",
+    url: "https://anthropic-partners.skilljar.com/path/claude-certified-developer-foundations/production-engineering-evals-security",
+  },
+  {
+    order: 5,
+    label: "Accelerators & IP Contribution",
+    duration: "155 min",
+    detail: "Reusable accelerators, contribution readiness, requirements, lifecycle, platform selection, versioning, and deployment boundaries.",
+    url: "https://anthropic-partners.skilljar.com/path/claude-certified-developer-foundations/accelerators-ip-contribution",
+  },
+] as const;
+
+const prepCourse = (index: number) => ({
+  label: `Official prep ${officialPrepCourses[index].order}: ${officialPrepCourses[index].label}`,
+  url: officialPrepCourses[index].url,
+});
+
+export const fullMockQuestionCounts: Record<string, number> = {
+  D1: 8,
+  D2: 17,
+  D3: 2,
+  D4: 1,
+  D5: 9,
+  D6: 6,
+  D7: 4,
+  D8: 6,
+};
+
 export const domains: Domain[] = [
   {
     id: "D1", name: "Agents and Workflows", short: "Agents & Workflows", weight: 14.7, color: "coral",
@@ -22,6 +78,7 @@ export const domains: Domain[] = [
       { name: "Agent Patterns and Frameworks", weight: 4.9, detail: "Apply tool-use loops, subagents, memory, context-window management, and framework abstractions such as LangGraph or PydanticAI." },
     ],
     docs: [
+      prepCourse(1),
       { label: "Building effective agents", url: "https://www.anthropic.com/research/building-effective-agents" },
       { label: "Agent SDK overview", url: "https://platform.claude.com/docs/en/agent-sdk/overview" },
     ],
@@ -39,6 +96,9 @@ export const domains: Domain[] = [
       { name: "Configuration Management", weight: 4.1, detail: "Manage CLAUDE.md, settings.json, model pinning, prompt versions, and plugin dependencies." },
     ],
     docs: [
+      prepCourse(0),
+      prepCourse(1),
+      prepCourse(4),
       { label: "Messages API", url: "https://platform.claude.com/docs/en/api/messages/create" },
       { label: "Streaming", url: "https://platform.claude.com/docs/en/build-with-claude/streaming" },
       { label: "Message Batches", url: "https://platform.claude.com/docs/en/build-with-claude/batch-processing" },
@@ -52,6 +112,7 @@ export const domains: Domain[] = [
       { name: "Claude Code Operation", weight: 3.1, detail: "Use Rules, Skills, Commands, Agents, Agent Memory, session controls, slash commands, headless, streaming, auto mode, CLAUDE.md hierarchy, and settings." },
     ],
     docs: [
+      prepCourse(2),
       { label: "Explore the .claude directory", url: "https://code.claude.com/docs/en/claude-directory" },
       { label: "Claude Code settings", url: "https://code.claude.com/docs/en/settings" },
     ],
@@ -64,6 +125,7 @@ export const domains: Domain[] = [
       { name: "Debugging and Error Handling", weight: 2.6, detail: "Identify error types, choose recovery strategies, analyze traces, and isolate integration-layer faults from model-output faults." },
     ],
     docs: [
+      prepCourse(3),
       { label: "Evaluate and ship", url: "https://platform.claude.com/docs/en/home" },
       { label: "API errors", url: "https://platform.claude.com/docs/en/api/errors" },
     ],
@@ -79,6 +141,8 @@ export const domains: Domain[] = [
       { name: "Cost and Token Management", weight: 2.8, detail: "Track usage, model cost, set token budgets, and apply prompt caching and cache checkpoints." },
     ],
     docs: [
+      prepCourse(0),
+      prepCourse(3),
       { label: "Models overview", url: "https://platform.claude.com/docs/en/about-claude/models/overview" },
       { label: "Prompt caching", url: "https://platform.claude.com/docs/en/build-with-claude/prompt-caching" },
       { label: "Pricing", url: "https://platform.claude.com/docs/en/about-claude/pricing" },
@@ -94,6 +158,8 @@ export const domains: Domain[] = [
       { name: "Output Handling", weight: 2.6, detail: "Generate structured outputs, validate responses, parse defensively, and remain skeptical of confident model output." },
     ],
     docs: [
+      prepCourse(0),
+      prepCourse(1),
       { label: "Prompt engineering overview", url: "https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/overview" },
       { label: "Manage tool context", url: "https://platform.claude.com/docs/en/agents-and-tools/tool-use/manage-tool-context" },
     ],
@@ -109,6 +175,8 @@ export const domains: Domain[] = [
       { name: "Identity, Secrets, and Key Management", weight: 1.6, detail: "Verify identities, authorize access, scope credentials, store API keys safely, rotate secrets, and monitor authorized use." },
     ],
     docs: [
+      prepCourse(2),
+      prepCourse(3),
       { label: "Safeguards and guardrails", url: "https://platform.claude.com/docs/en/test-and-evaluate/strengthen-guardrails" },
       { label: "Claude Code permissions", url: "https://code.claude.com/docs/en/permissions" },
       { label: "Hooks guide", url: "https://code.claude.com/docs/en/hooks-guide" },
@@ -124,6 +192,8 @@ export const domains: Domain[] = [
       { name: "Agentic Customization", weight: 4.1, detail: "Choose between built-in tools, custom tools, Skills, and MCP based on reusability, execution needs, scope, and maintenance." },
     ],
     docs: [
+      prepCourse(1),
+      prepCourse(2),
       { label: "Tool use", url: "https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview" },
       { label: "MCP specification", url: "https://modelcontextprotocol.io/specification/latest" },
     ],
@@ -137,12 +207,25 @@ export type Question = {
   options: string[];
   answers: number[];
   explanation: string;
+  source?: { label: string; url: string };
 };
 
-const Q = (id: number, domain: string, prompt: string, options: string[], answers: number[], explanation: string): Question =>
-  ({ id, domain, prompt, options, answers, explanation });
+const Q = (id: number, domain: string, prompt: string, options: string[], answers: number[], explanation: string, sourceCourse?: number): Question => ({
+  id,
+  domain,
+  prompt,
+  options,
+  answers,
+  explanation,
+  ...(sourceCourse === undefined ? {} : {
+    source: {
+      label: officialPrepCourses[sourceCourse].label,
+      url: officialPrepCourses[sourceCourse].url,
+    },
+  }),
+});
 
-export const questions: Question[] = [
+export const legacyQuestions: Question[] = [
   Q(1,"D1","A refund process has fixed validation, approval, and notification steps. Every transition must be auditable. What should the team build first?",["An open-ended autonomous agent","A deterministic workflow with bounded model steps","A swarm of peer agents","A memory-first conversational agent"],[1],"A deterministic workflow fits known steps, strict transitions, and auditability; autonomy adds unnecessary variance."),
   Q(2,"D1","A research task branches unpredictably as evidence is discovered and requires choosing tools at runtime. Which architecture best fits?",["A fixed linear pipeline","A single prompt with no tools","An agentic loop with explicit stopping conditions","A nightly batch job only"],[2],"Dynamic planning and tool choice justify an agentic loop, bounded by budgets and stop conditions."),
   Q(3,"D1","A manager agent delegates legal, technical, and financial analysis. What is the strongest reason to use subagents?",["They guarantee correct answers","They isolate specialized context and return focused results","They remove the need for validation","They make all work deterministic"],[1],"Subagents provide specialization and context isolation; they do not guarantee correctness."),
@@ -203,9 +286,28 @@ export const questions: Question[] = [
   Q(51,"D8","Which MCP primitive is model-invoked to perform an external action?",["Tool","Resource","Prompt","Theme"],[0],"Tools are executable, model-controlled capabilities; resources provide data and prompts provide templates."),
   Q(52,"D8","A local MCP integration runs as a subprocess. Which transport is the natural fit?",["stdio","SMTP","FTP","A public unauthenticated endpoint"],[0],"stdio is designed for a client-launched local server exchanging protocol messages over standard streams."),
   Q(53,"D8","A reusable deployment checklist contains instructions and reference material but does not need external execution. Which customization best fits?",["A Skill","A remote MCP server","A destructive hook","A database credential"],[0],"A Skill packages reusable knowledge and workflow instructions; MCP is useful when an external capability or shared service is needed."),
+
+  Q(54,"D5","A team is choosing between a more capable Claude model and enabling extended thinking on its current model. What distinction should guide the evaluation?",["They are the same setting with different names","Model tier changes the underlying capability profile; thinking mode changes how a supported model reasons and adds token, cost, and latency trade-offs","Extended thinking always makes a smaller model identical to the largest model","Model choice matters only for streaming"],[1],"MSO Foundations treats model selection and reasoning mode as separate engineering decisions. Test both against representative quality, latency, and cost targets.",0),
+  Q(55,"D5","A service needs immediate user-facing responses for some requests and must process thousands of independent low-priority requests overnight. Which access patterns best match the two workloads?",["Streaming for the interactive path and asynchronous batches for the overnight workload","Batches for both workloads","One synchronous request containing all overnight work","A separate long-lived browser session for every request"],[0],"The official foundations module distinguishes synchronous, streaming, and asynchronous access patterns. Interactive work benefits from streaming; high-volume delay-tolerant work fits batches.",0),
+  Q(56,"D6","A production prompt mixes instructions, retrieved evidence, examples, and requested output fields in one undifferentiated paragraph. Which revision best follows the official prompting module?",["Add more adjectives without changing structure","Separate roles with clear instructions and XML-delimited sections, add representative examples, and state output constraints explicitly","Move all content into the user question","Increase temperature until the format stabilizes"],[1],"Clear system instructions, XML structure, few-shot examples, and explicit constraints make the intended behavior and content boundaries easier to follow and evaluate.",1),
+  Q(57,"D1","An agent can issue refunds after investigating a case. Most refunds are routine, but unusually large refunds are irreversible and high impact. What production design is strongest?",["Let the agent approve every refund if its confidence is high","Use an agent loop with bounded tools and require a human checkpoint for large refunds","Replace all tools with a longer prompt","Retry the refund automatically if the first call times out"],[1],"The official agents module recommends matching orchestration to the task while adding HITL checkpoints where actions are irreversible or high impact.",1),
+  Q(58,"D2","A streamed response is interrupted after several partial events. What should the integration do?",["Treat the accumulated fragments as a guaranteed complete answer","Track event state, discard or safely reconcile incomplete content blocks, and retry according to an explicit idempotent recovery policy","Append a fabricated stop event","Increase the context window and ignore the interruption"],[1],"Production streaming requires assembling events into complete blocks and recovering cleanly from partial interruption without duplicating side effects.",1),
+  Q(59,"D3","A Claude Code team wants shared architectural rules, personal experimental overrides, and strict command boundaries. Which combination fits?",["Commit project guidance and rules, keep personal overrides local, and enforce risky-command boundaries with permissions or hooks","Commit every personal setting and secret","Put all three concerns in a temporary chat message","Use auto mode as the only security control"],[0],"The Claude Code module separates durable project context, local customization, and deterministic permission enforcement so team behavior is shareable without broadening authority.",2),
+  Q(60,"D8","An enterprise MCP server should be available to one project team but not automatically to every user on a machine. What must the implementer choose deliberately?",["Only the tool names","The transport, authentication, and configuration scope that determine how the server connects and who loads it","The model temperature","The order of CSS imports"],[1],"The official MCP module emphasizes transport, regulated authentication patterns, and configuration scope because each changes the integration's trust and availability boundaries.",2),
+  Q(61,"D4","A prototype agent appears accurate in demos. Before production, which evidence best defines that it is ready?",["One successful manual run","A versioned eval suite tied to explicit success and failure criteria, plus traces that isolate regressions and operational errors","A longer system prompt","A promise to inspect failures after launch"],[1],"Production engineering uses evals to define done and tracing/testing layers to catch regressions and separate model, tool, and integration failures.",3),
+  Q(62,"D7","An agent reads untrusted documents and can call an internal deployment tool. Which layered controls best prepare it for security review? Select two.",["Treat document text as untrusted data and test prompt-injection cases","Give the tool a least-privilege identity with deterministic approval for sensitive actions","Hide the deployment tool description","Rely on the model to recognize every attack"],[0,1],"The official security module combines prompt-injection defenses with scoped credentials and deterministic guardrails; model judgment alone is not a security boundary.",3),
+  Q(63,"D2","A consultancy wants to reuse a successful Claude solution across clients. Which package is the strongest accelerator?",["A copy of the first client's repository including secrets","Reusable core logic with documented client-specific parameters, versioned dependencies, eval evidence, operational guidance, and no client-confidential data","Only a slide showing the architecture","A floating model alias and undocumented manual deployment steps"],[1],"The official accelerator module focuses on turning a working build into a reusable, reviewable asset: isolate reusable logic, expose variation explicitly, carry evidence and documentation, and preserve trust boundaries.",4),
 ];
 
+export const questions: Question[] = hardQuestions;
+
 export const sourceLinks = [
+  { label: "Official CCDV-F prep path", detail: "Anthropic Academy · Complete five-course certification path", url: "https://anthropic-partners.skilljar.com/path/claude-certified-developer-foundations" },
+  ...officialPrepCourses.map((course) => ({
+    label: `${course.order}. ${course.label}`,
+    detail: `Official prep course · ${course.duration} · ${course.detail}`,
+    url: course.url,
+  })),
   { label: "Certification page", detail: "Anthropic Partner Academy", url: "https://anthropic-partners.skilljar.com/claude-certified-developer-foundations-certification" },
   { label: "Independent exam guide", detail: "Blueprint and exam facts", url: "https://claudecertificationguide.com/ccdv-f" },
   { label: "Claude Platform docs", detail: "API, models, tools, prompting", url: "https://platform.claude.com/docs/en/home" },
