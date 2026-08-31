@@ -1,3 +1,5 @@
+export type QuestionDifficulty = "standard" | "advanced" | "expert";
+
 export type PracticeQuestion = {
   id: number;
   domain: string;
@@ -6,6 +8,7 @@ export type PracticeQuestion = {
   answers: number[];
   explanation: string;
   source: { label: string; url: string };
+  difficulty: QuestionDifficulty;
 };
 
 const courseSources = [
@@ -16,6 +19,17 @@ const courseSources = [
   { label: "Accelerators & IP Contribution", url: "https://anthropic-partners.skilljar.com/path/claude-certified-developer-foundations/accelerators-ip-contribution" },
 ] as const;
 
+const standardQuestionIds = new Set([
+  1, 2, 5, 9, 10, 11, 13, 15, 16, 18, 21, 22, 26, 29, 32, 33, 37,
+  38, 40, 41, 45, 50, 51, 52,
+]);
+const expertQuestionIds = new Set([
+  3, 6, 7, 12, 17, 19, 23, 24, 27, 31, 35, 36, 39, 42, 44, 47, 48, 49,
+  54, 56, 57, 58, 60, 61, 62, 63,
+]);
+const difficultyFor = (id: number): QuestionDifficulty =>
+  expertQuestionIds.has(id) ? "expert" : standardQuestionIds.has(id) ? "standard" : "advanced";
+
 const H = (id: number, domain: string, prompt: string, options: string[], answers: number[], explanation: string, sourceCourse: number): PracticeQuestion => ({
   id,
   domain,
@@ -24,6 +38,7 @@ const H = (id: number, domain: string, prompt: string, options: string[], answer
   answers,
   explanation,
   source: courseSources[sourceCourse],
+  difficulty: difficultyFor(id),
 });
 
 export const hardQuestions: PracticeQuestion[] = [

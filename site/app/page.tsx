@@ -8,6 +8,15 @@ type ExamState = "idle" | "running" | "results";
 type AttemptMode = "full" | "quick" | "domain";
 type PracticePanel = "launch" | "history";
 type HistoryFilter = "all" | AttemptMode;
+type DomainExamType = "guided" | "exam" | "sprint";
+type DomainDifficulty = "mixed" | Question["difficulty"];
+type ResponseFormat = "mixed" | "single" | "multiple";
+type DomainExamConfig = {
+  examType: DomainExamType;
+  difficulty: DomainDifficulty;
+  responseFormat: ResponseFormat;
+  questionCount: number;
+};
 type DomainResult = { domainId: string; correct: number; total: number; percent: number };
 type ExamAttempt = {
   id: string;
@@ -23,6 +32,9 @@ type ExamAttempt = {
   correctCount: number;
   scorePercent: number;
   domainResults: DomainResult[];
+  examType?: DomainExamType;
+  difficulty?: DomainDifficulty;
+  responseFormat?: ResponseFormat;
 };
 
 const progressStorageKey = "ccdv-field-guide-progress";
@@ -40,6 +52,28 @@ const attemptLabels: Record<AttemptMode, string> = {
   quick: "Scenario Sprint",
   domain: "Domain drill",
 };
+const examTypeOptions: { id: DomainExamType; label: string; detail: string; secondsPerQuestion: number }[] = [
+  { id: "guided", label: "Guided practice", detail: "Relaxed pace · 3 min per question", secondsPerQuestion: 180 },
+  { id: "exam", label: "Exam pace", detail: "Official rhythm · 2 min 15 sec per question", secondsPerQuestion: 135 },
+  { id: "sprint", label: "Pressure sprint", detail: "Fast decisions · 90 sec per question", secondsPerQuestion: 90 },
+];
+const difficultyLabels: Record<DomainDifficulty, string> = {
+  mixed: "All levels",
+  standard: "Standard",
+  advanced: "Advanced",
+  expert: "Expert",
+};
+const responseFormatLabels: Record<ResponseFormat, string> = {
+  mixed: "Mixed formats",
+  single: "Single response",
+  multiple: "Multiple response",
+};
+const filterDomainQuestions = (domainId: string, config: Pick<DomainExamConfig, "difficulty" | "responseFormat">) =>
+  questions.filter((question) =>
+    question.domain === domainId &&
+    (config.difficulty === "mixed" || question.difficulty === config.difficulty) &&
+    (config.responseFormat === "mixed" || (config.responseFormat === "multiple" ? question.answers.length > 1 : question.answers.length === 1)),
+  );
 const formatAttemptDate = (timestamp: number) => new Intl.DateTimeFormat(undefined, {
   day: "2-digit",
   month: "short",
@@ -57,6 +91,14 @@ export default function Home() {
   const [view, setView] = useState<View>("overview");
   const [practicePanel, setPracticePanel] = useState<PracticePanel>("launch");
   const [activeDomain, setActiveDomain] = useState("D2");
+  const [configuredDomain, setConfiguredDomain] = useState<string | null>(null);
+  const [domainExamConfig, setDomainExamConfig] = useState<DomainExamConfig>({
+    examType: "exam",
+    difficulty: "mixed",
+    responseFormat: "mixed",
+    questionCount: 5,
+  });
+  const [attemptConfig, setAttemptConfig] = useState<DomainExamConfig | null>(null);
   const [completed, setCompleted] = useState<string[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [examState, setExamState] = useState<ExamState>("idle");
@@ -116,6 +158,28 @@ export default function Home() {
     total + domain.objectives.reduce((sum, objective, index) =>
       sum + (completed.includes(objectiveKey(domain, index)) ? objective.weight : 0), 0), 0);
   const currentDomain = domains.find((domain) => domain.id === activeDomain) ?? domains[1];
+  const setupDomain = domains.find((domain) => domain.id === configuredDomain) ?? null;
+  const domainQuestionPool = useMemo(
+    () => configuredDomain ? filterDomainQuestions(configuredDomain, domainExamConfig) : [],
+    [configuredDomain, domainExamConfig],
+  );
+  const questionCountOptions = useMemo(() => {
+    if (!domainQuestionPool.length) return [];
+    return [...new Set([5, 10, 15, domainQuestionPool.length]
+      .map((count) => Math.min(count, domainQuestionPool.length)))]
+      .filter((count) => count > 0)
+      .sort((a, b) => a - b);
+  }, [domainQuestionPool.length]);
+  const configuredQuestionCount = Math.min(domainExamConfig.questionCount, domainQuestionPool.length);
+  const configuredExamType = examTypeOptions.find((option) => option.id === domainExamConfig.examType) ?? examTypeOptions[1];
+
+  useEffect(() => {
+    if (!questionCountOptions.length || questionCountOptions.includes(domainExamConfig.questionCount)) return;
+    setDomainExamConfig((config) => ({
+      ...config,
+      questionCount: questionCountOptions.find((count) => count >= config.questionCount) ?? questionCountOptions.at(-1)!,
+    }));
+  }, [domainExamConfig.questionCount, questionCountOptions]);
 
   const score = useMemo(() => {
     if (!examQuestions.length) return { correct: 0, percent: 0 };
@@ -152,6 +216,11 @@ export default function Home() {
       correctCount,
       scorePercent: Math.round((correctCount / examQuestions.length) * 100),
       domainResults,
+      ...(attemptConfig ? {
+        examType: attemptConfig.examType,
+        difficulty: attemptConfig.difficulty,
+        responseFormat: attemptConfig.responseFormat,
+      } : {}),
     };
 
     try {
@@ -168,7 +237,7 @@ export default function Home() {
         setHistoryError(error instanceof Error ? error.message : "Unable to save this attempt");
       });
     }
-  }, [attemptDomain, attemptId, attemptMode, examDuration, examQuestions, examStartedAt, examState, examTitle, history, secondsLeft, selections]);
+  }, [attemptConfig, attemptDomain, attemptId, attemptMode, examDuration, examQuestions, examStartedAt, examState, examTitle, history, secondsLeft, selections]);
 
   const filteredHistory = useMemo(
     () => historyFilter === "all" ? history : history.filter((attempt) => attempt.mode === historyFilter),
@@ -192,7 +261,11 @@ export default function Home() {
 
   const navigate = (next: View) => {
     setView(next);
-    if (next !== "practice") setExamState("idle");
+    setExamState("idle");
+    if (next === "practice") {
+      setConfiguredDomain(null);
+      setPracticePanel("launch");
+    }
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -202,11 +275,21 @@ export default function Home() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  const openDomainPractice = (id: string) => {
+    setActiveDomain(id);
+    setConfiguredDomain(id);
+    setDomainExamConfig({ examType: "exam", difficulty: "mixed", responseFormat: "mixed", questionCount: 5 });
+    setExamState("idle");
+    setPracticePanel("launch");
+    setView("practice");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   const toggleObjective = (key: string) => {
     setCompleted((items) => items.includes(key) ? items.filter((item) => item !== key) : [...items, key]);
   };
 
-  const startExam = (mode: AttemptMode, domainId?: string) => {
+  const startExam = (mode: AttemptMode, domainId?: string, domainConfig?: DomainExamConfig) => {
     let selected: Question[];
     let duration: number;
     let title: string;
@@ -217,18 +300,21 @@ export default function Home() {
       ));
       duration = 120 * 60;
       title = "Full Blueprint Mock";
-    } else if (mode === "domain" && domainId) {
-      selected = shuffle(questions.filter((question) => question.domain === domainId));
-      duration = Math.max(15, Math.round(selected.length * 2.25)) * 60;
-      title = (domains.find((domain) => domain.id === domainId)?.short ?? "Domain") + " Drill";
+    } else if (mode === "domain" && domainId && domainConfig) {
+      selected = shuffle(filterDomainQuestions(domainId, domainConfig)).slice(0, domainConfig.questionCount);
+      const type = examTypeOptions.find((option) => option.id === domainConfig.examType) ?? examTypeOptions[1];
+      duration = selected.length * type.secondsPerQuestion;
+      title = `${domains.find((domain) => domain.id === domainId)?.short ?? "Domain"} · ${type.label}`;
     } else {
       selected = shuffle(questions).slice(0, 10);
       duration = 25 * 60;
       title = "Quick Scenario Drill";
     }
+    if (!selected.length) return;
     setExamQuestions(selected);
     setAttemptMode(mode);
     setAttemptDomain(mode === "domain" ? domainId ?? null : null);
+    setAttemptConfig(mode === "domain" ? domainConfig ?? null : null);
     setAttemptId(window.crypto.randomUUID());
     setExamStartedAt(Date.now());
     setSaveState("idle");
@@ -386,7 +472,7 @@ export default function Home() {
                   <p className="eyebrow">{currentDomain.id} / {currentDomain.weight}% OF EXAM</p>
                   <h2>{currentDomain.name}</h2>
                 </div>
-                <button className="small-action" onClick={() => startExam("domain", currentDomain.id)}>Practice domain →</button>
+                <button className="small-action" onClick={() => openDomainPractice(currentDomain.id)}>Configure practice →</button>
               </div>
               <p className="domain-summary">{currentDomain.summary}</p>
               <div className="focus-row">
@@ -438,6 +524,124 @@ export default function Home() {
           </div>
 
           {practicePanel === "launch" ? (
+            configuredDomain && setupDomain ? (
+              <div className="domain-configurator">
+                <button className="config-back" onClick={() => setConfiguredDomain(null)}>← All practice modes</button>
+                <div className="config-hero">
+                  <div>
+                    <p className="eyebrow">{setupDomain.id} / CUSTOM DOMAIN PRACTICE</p>
+                    <h2>Build your<br /><em>{setupDomain.short}</em> session.</h2>
+                    <p>Choose how you want to train before seeing the first question. Every completed session is saved in your attempt history.</p>
+                  </div>
+                  <div className="config-domain-card">
+                    <span className={"domain-dot " + setupDomain.color} />
+                    <b>{setupDomain.id}</b>
+                    <strong>{questions.filter((question) => question.domain === setupDomain.id).length}</strong>
+                    <span>QUESTIONS AVAILABLE</span>
+                  </div>
+                </div>
+
+                <div className="config-layout">
+                  <div className="config-controls">
+                    <fieldset className="config-group">
+                      <legend><span>01</span> Practice type</legend>
+                      <div className="config-choice-grid three">
+                        {examTypeOptions.map((option) => (
+                          <button
+                            type="button"
+                            key={option.id}
+                            className={domainExamConfig.examType === option.id ? "active" : ""}
+                            onClick={() => setDomainExamConfig((config) => ({ ...config, examType: option.id }))}
+                          >
+                            <b>{option.label}</b>
+                            <span>{option.detail}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </fieldset>
+
+                    <fieldset className="config-group">
+                      <legend><span>02</span> Difficulty</legend>
+                      <div className="config-choice-grid four">
+                        {(["mixed", "standard", "advanced", "expert"] as DomainDifficulty[]).map((difficulty) => {
+                          const count = questions.filter((question) => question.domain === setupDomain.id && (difficulty === "mixed" || question.difficulty === difficulty)).length;
+                          return (
+                            <button
+                              type="button"
+                              key={difficulty}
+                              disabled={!count}
+                              className={domainExamConfig.difficulty === difficulty ? "active" : ""}
+                              onClick={() => setDomainExamConfig((config) => ({ ...config, difficulty }))}
+                            >
+                              <b>{difficultyLabels[difficulty]}</b>
+                              <span>{count} available</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </fieldset>
+
+                    <fieldset className="config-group">
+                      <legend><span>03</span> Response format</legend>
+                      <div className="config-choice-grid three compact">
+                        {(["mixed", "single", "multiple"] as ResponseFormat[]).map((format) => {
+                          const count = filterDomainQuestions(setupDomain.id, { difficulty: domainExamConfig.difficulty, responseFormat: format }).length;
+                          return (
+                            <button
+                              type="button"
+                              key={format}
+                              disabled={!count}
+                              className={domainExamConfig.responseFormat === format ? "active" : ""}
+                              onClick={() => setDomainExamConfig((config) => ({ ...config, responseFormat: format }))}
+                            >
+                              <b>{responseFormatLabels[format]}</b>
+                              <span>{count} available</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </fieldset>
+
+                    <fieldset className="config-group">
+                      <legend><span>04</span> Number of questions</legend>
+                      <div className="question-count-options">
+                        {questionCountOptions.map((count) => (
+                          <button
+                            type="button"
+                            key={count}
+                            className={configuredQuestionCount === count ? "active" : ""}
+                            onClick={() => setDomainExamConfig((config) => ({ ...config, questionCount: count }))}
+                          >{count}</button>
+                        ))}
+                      </div>
+                    </fieldset>
+                  </div>
+
+                  <aside className="config-summary">
+                    <p className="eyebrow">YOUR SESSION</p>
+                    <h3>{setupDomain.short}</h3>
+                    <dl>
+                      <div><dt>Type</dt><dd>{configuredExamType.label}</dd></div>
+                      <div><dt>Difficulty</dt><dd>{difficultyLabels[domainExamConfig.difficulty]}</dd></div>
+                      <div><dt>Format</dt><dd>{responseFormatLabels[domainExamConfig.responseFormat]}</dd></div>
+                      <div><dt>Questions</dt><dd>{configuredQuestionCount || "—"}</dd></div>
+                      <div><dt>Time</dt><dd>{configuredQuestionCount ? formatDuration(configuredQuestionCount * configuredExamType.secondsPerQuestion) : "—"}</dd></div>
+                    </dl>
+                    <div className="config-promises">
+                      <span>✓ Immediate answer feedback</span>
+                      <span>✓ Randomized question order</span>
+                      <span>✓ Automatic history record</span>
+                    </div>
+                    <button
+                      className="light-btn config-start"
+                      disabled={!configuredQuestionCount}
+                      onClick={() => startExam("domain", setupDomain.id, { ...domainExamConfig, questionCount: configuredQuestionCount })}
+                    >Start configured session <span>→</span></button>
+                    {!configuredQuestionCount && <p className="config-warning">No questions match this combination. Choose another difficulty or response format.</p>}
+                  </aside>
+                </div>
+              </div>
+            ) : (
             <>
               <div className="practice-modes">
                 <button className="mode-card featured" onClick={() => startExam("full")}>
@@ -462,7 +666,7 @@ export default function Home() {
                 </div>
                 <div className="drill-grid">
                   {domains.map((domain) => (
-                    <button key={domain.id} onClick={() => startExam("domain", domain.id)}>
+                    <button key={domain.id} onClick={() => openDomainPractice(domain.id)}>
                       <span className={"domain-dot " + domain.color} />
                       <span><b>{domain.id}</b>{domain.short}</span>
                       <strong>{questions.filter((question) => question.domain === domain.id).length} Q →</strong>
@@ -471,6 +675,7 @@ export default function Home() {
                 </div>
               </div>
             </>
+            )
           ) : (
             <div className="history-panel">
               <div className="history-heading">
@@ -532,7 +737,17 @@ export default function Home() {
                       {filteredHistory.length ? filteredHistory.map((attempt) => (
                         <article className="attempt-row" key={attempt.id}>
                           <div className="attempt-date"><b>{formatAttemptDate(attempt.completedAt)}</b><span>{attemptLabels[attempt.mode]}</span></div>
-                          <div className="attempt-name"><h3>{attempt.title}</h3><p>{attempt.correctCount}/{attempt.questionCount} correct · {attempt.answeredCount} answered · {formatDuration(attempt.elapsedSeconds)}</p></div>
+                          <div className="attempt-name">
+                            <h3>{attempt.title}</h3>
+                            <p>{attempt.correctCount}/{attempt.questionCount} correct · {attempt.answeredCount} answered · {formatDuration(attempt.elapsedSeconds)}</p>
+                            {attempt.mode === "domain" && attempt.examType && (
+                              <div className="attempt-config">
+                                <span>{examTypeOptions.find((option) => option.id === attempt.examType)?.label ?? attempt.examType}</span>
+                                {attempt.difficulty && <span>{difficultyLabels[attempt.difficulty]}</span>}
+                                {attempt.responseFormat && <span>{responseFormatLabels[attempt.responseFormat]}</span>}
+                              </div>
+                            )}
+                          </div>
                           <div className="attempt-domains" aria-label="Domain scores">
                             {attempt.domainResults.map((result) => <span key={result.domainId}>{result.domainId} <b>{result.percent}%</b></span>)}
                           </div>
@@ -570,7 +785,7 @@ export default function Home() {
           </div>
           <article className="question-card">
             <div className="question-meta">
-              <span>{examQuestions[current].domain} · {domains.find((domain) => domain.id === examQuestions[current].domain)?.short}</span>
+              <span>{examQuestions[current].domain} · {domains.find((domain) => domain.id === examQuestions[current].domain)?.short} · {difficultyLabels[examQuestions[current].difficulty]}</span>
               <span>{examQuestions[current].answers.length > 1 ? "SELECT " + examQuestions[current].answers.length : "SELECT ONE"}</span>
             </div>
             <h2>{examQuestions[current].prompt}</h2>
@@ -648,7 +863,7 @@ export default function Home() {
                 {saveState === "error" && "This result could not be saved yet. Return to results to retry."}
               </p>
               <div className="result-actions">
-                <button className="primary-btn" onClick={() => startExam(attemptMode, attemptDomain ?? undefined)}>Try another set <span>→</span></button>
+                <button className="primary-btn" onClick={() => startExam(attemptMode, attemptDomain ?? undefined, attemptConfig ?? undefined)}>Try another set <span>→</span></button>
                 <button className="text-btn" onClick={() => { setExamState("idle"); setPracticePanel("history"); }}>View attempt history</button>
                 <button className="text-btn" onClick={() => { setExamState("idle"); setPracticePanel("launch"); }}>Back to practice</button>
               </div>

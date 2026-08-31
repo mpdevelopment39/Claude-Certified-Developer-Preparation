@@ -208,6 +208,7 @@ export type Question = {
   answers: number[];
   explanation: string;
   source?: { label: string; url: string };
+  difficulty: "standard" | "advanced" | "expert";
 };
 
 const Q = (id: number, domain: string, prompt: string, options: string[], answers: number[], explanation: string, sourceCourse?: number): Question => ({
@@ -217,6 +218,7 @@ const Q = (id: number, domain: string, prompt: string, options: string[], answer
   options,
   answers,
   explanation,
+  difficulty: "standard",
   ...(sourceCourse === undefined ? {} : {
     source: {
       label: officialPrepCourses[sourceCourse].label,

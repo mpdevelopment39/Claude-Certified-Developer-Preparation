@@ -67,6 +67,8 @@ test("ships the complete curriculum, official prep path, and original practice b
     { D1: 9, D2: 19, D3: 3, D4: 2, D5: 11, D6: 7, D7: 5, D8: 7 },
   );
   assert.ok((hardQuestions.match(/\],\[[0-3],[0-3]/g) ?? []).length >= 8);
+  assert.match(hardQuestions, /difficultyFor/);
+  assert.match(hardQuestions, /"standard" \| "advanced" \| "expert"/);
   assert.doesNotMatch(hardQuestions, /CSS theme|longest name|tell attackers to be polite/i);
   assert.match(content, /export const questions: Question\[\] = hardQuestions/);
   assert.equal((content.match(/duration: "\d+ min"/g) ?? []).length, 5);
@@ -80,6 +82,12 @@ test("ships the complete curriculum, official prep path, and original practice b
   assert.match(page, /setRevealed/);
   assert.match(page, /Check answer/);
   assert.match(page, /live-feedback/);
+  assert.match(page, /Practice type/);
+  assert.match(page, /Number of questions/);
+  assert.match(page, /Immediate answer feedback/);
+  assert.match(page, /Automatic history record/);
+  assert.match(page, /filterDomainQuestions/);
+  assert.match(page, /examType: attemptConfig\.examType/);
   assert.match(page, /120 \* 60/);
   assert.match(page, /ccdv-field-guide-progress/);
   assert.match(page, /not recalled, leaked, or live exam items/i);
